@@ -36,7 +36,7 @@ public class PlayerCharacter : Character
         currentHealth = 10;
         attack = 1;
         attackRange = 5;
-        attackSpeed = 1.5f;
+        attackSpeed = 5f;
     }
 
     public void GainExp(int expGained)

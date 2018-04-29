@@ -3,28 +3,38 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
 
-public class PlayerController : NetworkBehaviour
-{
-    public PlayerCharacter pc;
-    public float playerSpeed = 15;
-    public float attackTime = 0;
-    private float lastDirX = 0, lastDirY = -1;
-    private int facingDirection;
-    bool isMoving = false;
+// A PlayerUnit is a unit controlled by a player
+// This could be a character in an FPS, a zergling in a RTS
+// Or a scout in a TBS
 
+public class PlayerUnit : NetworkBehaviour {
+
+
+    bool initialized = false;
+    public PlayerCharacter pc;
+
+    float attackTime = 0;
+    private float lastDirX = 0, lastDirY = -1;
+    bool isMoving = false;
     private Animator pcAnimator;
     private Animator wpAnimator;
-    private SpriteRenderer wpSpriteRenderer;
-
-    public static Rigidbody2D rb2d;
+    public Vector3 direction;
+    public static Vector3 lastDirection;
     public Transform weapon;
+    private SpriteRenderer wpSpriteRenderer;
+    private Vector3 wpPos;
+    private int facingDirection;
+    private List<GameObject> enmsInRange;
+
     public static PoolOfObjects prjPool;
     public GameObject projectilePrefab;
     public Transform prjContainer;
-    private Vector3 wpPos;
-    public static Vector2 lastDirection = new Vector2(0, -1);
+
+    [SyncVar(hook = "OnWpSortingOrderChanged")]
+    int wpSortingOrder;
+
     Vector3 velocity;
-    private List<GameObject> foesInRange;
+    Vector3 lastFrameVel = Vector3.zero;
 
     // The position we think is most correct for this player.
     //   NOTE: if we are the authority, then this will be
@@ -34,45 +44,57 @@ public class PlayerController : NetworkBehaviour
     // This is a constantly updated value about our latency to the server
     // i.e. how many second it takes for us to receive a one-way message
     // TODO: This should probably be something we get from the PlayerConnectionObject
-    float ourLatency;
+    float ourLatency = 0.1f;   
 
     // This higher this value, the faster our local position will match the best guess position
     float latencySmoothingFactor = 10;
-    bool initialized = false;
 
-    // Use this for initialization
     void Start()
     {
-        rb2d = GetComponent<Rigidbody2D>();
-        transform.SetParent(GameObject.Find("Characters").transform);
-        wpPos = weapon.localPosition;
-        wpSpriteRenderer = weapon.GetComponent<SpriteRenderer>();
+        enmsInRange = new List<GameObject>();
+        pc = new PlayerCharacter();
         pcAnimator = GetComponent<Animator>();
         wpAnimator = weapon.GetComponent<Animator>();
-        foesInRange = new List<GameObject>();
-        if (prjContainer == null)
-            prjContainer = GameObject.Find("ProjectilesContainer").transform;
+        wpSpriteRenderer = weapon.GetComponent<SpriteRenderer>();
+        prjContainer = GameObject.Find("ProjectilesContainer").transform;
         if (prjPool == null)
             prjPool = new PoolOfObjects(prjContainer, projectilePrefab);
-        pc = new PlayerCharacter();
     }
+    // Update is called once per frame
+    void Update () {
+        // This function runs on ALL PlayerUnits -- not just the ones that I own.
 
-    void Update()
-    {
-        Debug.Log("IsServer? " + isServer + " Velocity " + velocity);
-        rb2d.velocity = velocity;
+        // Code running right here is running for ALL version of this object, even
+        // if it's not the authoratitive copy.
+        // But even if we're NOT the owner, we are trying to PREDICT where the object
+        // should be right now, based on the last velocity update.
+
+        
+
+        // How do I verify that I am allowed to mess around with this object?
         if (!hasAuthority)
         {
+            // We aren't the authority for this object, but we still need to update
+            // our local position for this object based on our best guess of where
+            // it probably is on the owning player's screen.
+            bestGuessPosition = bestGuessPosition + ( velocity * Time.deltaTime );
+            UpdateAnimation(direction);
+            // Instead of TELEPORTING our position to the best guess's position, we
+            // can smoothly lerp to it.
+
+            transform.position = Vector3.Lerp( transform.position, bestGuessPosition, Time.deltaTime * latencySmoothingFactor);
+
             return;
         }
+
         if (!initialized)
         {
+            lastDirection = new Vector3(0, -1);
             Camera.main.GetComponent<CameraFollow>().SetTarget(transform);
-            name = "PlayerUnit " + netId;
+            //name = "PlayerUnit " + netId;
+            //tag = "Player";
             initialized = true;
         }
-        ComputeVelocity();
-        CmdUpdateVelocity(velocity, transform.position);
 
         if (pc.AttackSpeed == 0)
         {
@@ -90,29 +112,25 @@ public class PlayerController : NetworkBehaviour
             //newProjectile.transform.position = weapon.position;
             CmdFire(weapon.position);
         }
+
+        // If we get to here, we are the authoritative owner of this object
+        transform.Translate(velocity);
+
+        ComputeVelocity();
+        SwapWeaponLayer();
+        UpdateAnimation(direction);
+        CmdUpdateVelocity(velocity, transform.position);
+
     }
 
-    protected void ComputeVelocity()
+
+    void ComputeVelocity()
     {
         Vector3 rightMovement = Vector3.right * Input.GetAxisRaw("Horizontal");
         Vector3 upMovement = Vector3.up * Input.GetAxisRaw("Vertical");
+        direction = Vector3.Normalize((rightMovement + upMovement) * Time.deltaTime);
 
-        Vector3 heading = Vector3.Normalize((rightMovement + upMovement) * playerSpeed * Time.deltaTime);
-
-        bool flipSpriteWpH = (wpSpriteRenderer.flipX ? (rightMovement.x > 0) : (rightMovement.x < 0));
-        bool flipSpriteWpV = (facingDirection < 2 || facingDirection > 5) ? (wpSpriteRenderer.sortingOrder == 1) : (wpSpriteRenderer.sortingOrder == -1);
-
-        if (flipSpriteWpH)
-        {
-            wpSpriteRenderer.flipX = !wpSpriteRenderer.flipX;
-        }
-        if (flipSpriteWpV)
-        {
-            SwapWeaponLayer();
-        }
-
-        velocity = heading * playerSpeed;
-        //UpdateAnimation(heading);
+        velocity = Vector3.Normalize((rightMovement + upMovement) * Time.deltaTime) / 10;
     }
 
     void UpdateAnimation(Vector3 dir)
@@ -136,14 +154,14 @@ public class PlayerController : NetworkBehaviour
             isMoving = true;
         }
 
-        if (foesInRange.Count > 0)
+        if (enmsInRange.Count > 0)
         {
-           Vector3 distanceFromTarget = foesInRange[0].transform.position - transform.position;
-            for (int i = 1; i < foesInRange.Count; i++)
+            Vector3 distanceFromTarget = enmsInRange[0].transform.position - transform.position;
+            for (int i = 1; i < enmsInRange.Count; i++)
             {
-                if (distanceFromTarget.magnitude > (foesInRange[i].transform.position - transform.position).magnitude)
+                if (distanceFromTarget.magnitude > (enmsInRange[i].transform.position - transform.position).magnitude)
                 {
-                    distanceFromTarget = foesInRange[i].transform.position - transform.position;
+                    distanceFromTarget = enmsInRange[i].transform.position - transform.position;
                 }
             }
             dir = distanceFromTarget.normalized;
@@ -160,28 +178,26 @@ public class PlayerController : NetworkBehaviour
 
     public void SwapWeaponLayer()
     {
-        if (wpSpriteRenderer.sortingOrder == 1)
-            wpSpriteRenderer.sortingOrder = -1;
-        else
-            wpSpriteRenderer.sortingOrder = 1;
+        bool isToSwap = (facingDirection < 2 || facingDirection > 5) ? (wpSpriteRenderer.sortingOrder == 1) : (wpSpriteRenderer.sortingOrder == -1);
+        if (isToSwap)
+        {
+
+            if (wpSpriteRenderer.sortingOrder == 1)
+                CmdChangeWpSo(-1);
+            else
+                CmdChangeWpSo(1);
+        }
     }
-    
+
+    void OnWpSortingOrderChanged(int so)
+    {
+        wpSortingOrder = so;
+        wpSpriteRenderer.sortingOrder = wpSortingOrder;
+    }
+
     public void CharacterFacingDirection(int direction)
     {
         facingDirection = direction;
-        wpPos.x = (facingDirection > 3) ? -0.055f : 0.055f;
-        wpPos.y = (facingDirection < 2 || facingDirection == 7) ? 0.05f : -0.05f;
-        weapon.localPosition = wpPos;
-    }
-
-    public void InflictDamage(int pDamage)
-    {
-        pc.InflictDamage(pDamage);
-        if (!pc.IsAlive)
-        {
-            Debug.Log("You lose");
-            Time.timeScale = 0;
-        }
     }
 
     void OnTriggerEnter2D(Collider2D coll)
@@ -190,7 +206,7 @@ public class PlayerController : NetworkBehaviour
         {
             if (coll.gameObject.tag == "Enemy")
             {
-                foesInRange.Add(coll.gameObject);
+                enmsInRange.Add(coll.gameObject);
             }
         }
     }
@@ -201,42 +217,52 @@ public class PlayerController : NetworkBehaviour
         {
             if (coll.gameObject.tag == "Enemy")
             {
-                foesInRange.Remove(coll.gameObject);
+                enmsInRange.Remove(coll.gameObject);
             }
         }
     }
 
     [Command]
-    void CmdFire(Vector3 wPos)
+    void CmdChangeWpSo(int so)
     {
-        GameObject newProjectile = prjPool.GetObject();
-        Debug.Log(newProjectile.name);
-        newProjectile.transform.position = wPos;
-
-        NetworkServer.SpawnWithClientAuthority(newProjectile, connectionToClient);
+        wpSortingOrder = so;
     }
 
     [Command]
-    void CmdUpdateVelocity(Vector3 v, Vector3 p)
+    void CmdFire(Vector3 wp)
+    {
+        RpcFire(wp);
+    }
+
+    [ClientRpc]
+    void RpcFire(Vector3 wp)
+    {
+        GameObject newProjectile = prjPool.GetObject();
+        newProjectile.transform.position = wp;
+        newProjectile.GetComponent<Projectile>().Initialize(lastDirection, wp);
+    }
+
+    [Command]
+    void CmdUpdateVelocity( Vector3 v, Vector3 p)
     {
         // I am on a server
         transform.position = p;
         velocity = v;
-
+        direction = velocity * 10;
         // If we know what our current latency is, we could do something like this:
         //  transform.position = p + (v * (thisPlayersLatencyToServer))
 
 
         // Now let the clients know the correct position of this object.
-        RpcUpdateVelocity(velocity, transform.position);
+        RpcUpdateVelocity( velocity, transform.position);
     }
 
     [ClientRpc]
-    void RpcUpdateVelocity(Vector3 v, Vector3 p)
+    void RpcUpdateVelocity( Vector3 v, Vector3 p )
     {
         // I am on a client
 
-        if (hasAuthority)
+        if( hasAuthority )
         {
             // Hey, this is my own object. I "should" already have the most accurate
             // position/velocity (possibly more "Accurate") than the server
@@ -255,8 +281,8 @@ public class PlayerController : NetworkBehaviour
         //transform.position = p;
 
         velocity = v;
+        direction = velocity * 10;
         bestGuessPosition = p + (velocity * (ourLatency));
-
 
         // Now position of player one is as close as possible on all player's screens
 
@@ -265,4 +291,7 @@ public class PlayerController : NetworkBehaviour
 
 
     }
+
+    
+
 }

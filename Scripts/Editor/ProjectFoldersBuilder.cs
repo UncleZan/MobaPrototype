@@ -10,6 +10,7 @@ public class buildProjectFolders : ScriptableWizard
     List<string> fwSub = new List<string>() { "Scripts", "Audio", "Scenes" };
     List<string> folders = new List<string>() { "3rd-Party", "Animations", "Artwork", "Audio", "Materials", "Models", "Plugins", "Prefabs", "Resources", "Textures", "Sandbox", "Scenes", "Scripts", "Sprites" };
     List<string> sceneContainers = new List<string>() { "Management", "GUI", "Camera", "Lights", "World", "_Dynamic" };
+    public bool pfChecked = false, shChecked = false;
     [MenuItem("Edit/Set Game Structure...")]
     static void CreateWizard()
     {
@@ -25,48 +26,54 @@ public class buildProjectFolders : ScriptableWizard
     //Create button click
     void OnWizardCreate()
     {
-
         //create all the folders required in a project
         //primary and sub folders
-        #region Folders
-        foreach (string folder in folders)
+        #region ProjectFolders
+        if (pfChecked)
         {
-            if (!AssetDatabase.IsValidFolder("Assets/" + folder)) 
-                AssetDatabase.CreateFolder("Assets", folder);
-        }
-
-        AssetDatabase.Refresh();
-
-        for (int i = 0; i < subfolders.Count; i++)
-        {
-            foreach (string sf in subfolders[i])
+            Debug.Log("FOLDERS CREATED");
+            foreach (string folder in folders)
             {
-                if (!AssetDatabase.IsValidFolder("Assets/" + fwSub[i] +"/" + sf))
-                    AssetDatabase.CreateFolder("Assets/" + fwSub[i], sf);
+                if (!AssetDatabase.IsValidFolder("Assets/" + folder))
+                    AssetDatabase.CreateFolder("Assets", folder);
+            }
+
+            AssetDatabase.Refresh();
+
+            for (int i = 0; i < subfolders.Count; i++)
+            {
+                foreach (string sf in subfolders[i])
+                {
+                    if (!AssetDatabase.IsValidFolder("Assets/" + fwSub[i] + "/" + sf))
+                        AssetDatabase.CreateFolder("Assets/" + fwSub[i], sf);
+                }
             }
         }
         #endregion
 
         #region SceneHierarchy
-
-        GameObject gameObject;
-        for (int i = 0; i < sceneContainers.Count; i++)
+        if (shChecked)
         {
-            if (GameObject.Find(sceneContainers[i]) == null)
-                gameObject = new GameObject(sceneContainers[i]);
-            else
-                gameObject = new GameObject();
-
-            if (sceneContainers[i].Equals("World"))
+            Debug.Log("SCENE CREATED");
+            GameObject gameObject;
+            for (int i = 0; i < sceneContainers.Count; i++)
             {
-                GameObject subGameObject = new GameObject("Terrain");
-                subGameObject.transform.SetParent(gameObject.transform);
-                subGameObject = new GameObject("Props");
-                subGameObject.transform.SetParent(gameObject.transform);
-                subGameObject = new GameObject("Characters");
-                subGameObject.transform.SetParent(gameObject.transform);
+                if (GameObject.Find(sceneContainers[i]) == null)
+                    gameObject = new GameObject(sceneContainers[i]);
+                else
+                    gameObject = new GameObject();
+
+                if (sceneContainers[i].Equals("World"))
+                {
+                    GameObject subGameObject = new GameObject("Terrain");
+                    subGameObject.transform.SetParent(gameObject.transform);
+                    subGameObject = new GameObject("Props");
+                    subGameObject.transform.SetParent(gameObject.transform);
+                    subGameObject = new GameObject("Characters");
+                    subGameObject.transform.SetParent(gameObject.transform);
+                }
             }
-        }
+        }        
         #endregion
     }
 
@@ -81,3 +88,5 @@ public class buildProjectFolders : ScriptableWizard
         if (subfolders.Count > 0) subfolders.Clear();
     }
 }
+
+

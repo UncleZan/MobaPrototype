@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Networking;
 
 public class Game : MonoBehaviour {
 
@@ -27,6 +28,11 @@ public class Game : MonoBehaviour {
     /// </summary>
     float spawnDelay = 3.5f;
 
+    void Awake()
+    {
+
+    }
+
     // Use this for initialization
     void Start () {
         if (foesPool == null)
@@ -34,7 +40,7 @@ public class Game : MonoBehaviour {
         if (enemyPrjPool == null)
             enemyPrjPool = new PoolOfObjects(enemyPrjContainer, enemyPrjPrefab);
         enemiesToKill = 1;
-        SpawnFoe();
+        //SpawnFoe();
     }
 
     // Update is called once per frame
